@@ -1,5 +1,3 @@
-Python
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -85,4 +83,5 @@ if search_btn or ticker_input:
         except Exception as e:
             st.error(f"无法找到代码 {ticker_symbol}，请检查拼写是否正确。错误信息: {e}")
     else:
+
         st.warning("请输入有效的股票代码。")
