@@ -45,7 +45,9 @@ if search_btn or ticker_input:
                 info = stock.info
                 
                 # --- 数据提取 (增强容错性) ---
+                # 尝试获取价格，如果currentPrice没有(常见于ETF)，尝试navPrice或previousClose
                 price = info.get('currentPrice') or info.get('navPrice') or info.get('previousClose')
+                
                 short_ratio = info.get('shortRatio') # 回补天数
                 short_float = info.get('shortPercentOfFloat') # 做空占比
                 shares_short = info.get('sharesShort') # 总做空股数
@@ -58,12 +60,14 @@ if search_btn or ticker_input:
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("当前价格", f"${price}" if price else "N/A")
+                
                 with c2:
                     # 如果是ETF，Yahoo经常没有Short Ratio，显示N/A
                     val = f"{short_ratio} 天" if short_ratio else "N/A"
                     st.metric("Short Ratio (回补天数)", val)
+                
                 with c3:
-                    # 做空占比
+                    # 做空占比逻辑
                     if short_float:
                         val = f"{short_float * 100:.2f}%"
                         st.metric("Short % of Float", val, delta="做空热度", delta_color="off")
@@ -72,7 +76,7 @@ if search_btn or ticker_input:
 
                 # --- 第二行：针对 ETF 的补充数据 ---
                 st.write("")
-                st.caption("💡 提示：ETF 的流通股是动态变化的，因此由于计算困难，免费数据源常缺失比率数据。请参考下方的【总做空股数】。")
+                st.caption("💡 提示：ETF 的流通股是动态变化的，免费数据源常缺失比率数据。请参考下方的【总做空股数】或跳转 Finviz。")
                 
                 c4, c5 = st.columns(2)
                 with c4:
@@ -81,43 +85,21 @@ if search_btn or ticker_input:
                     # 这是一个备用方案按钮
                     finviz_url = f"https://finviz.com/quote.ashx?t={ticker_symbol}&p=d"
                     st.write("看不到数据？试试 Finviz：")
-                    st.link_button(f"👉 去 Finviz 查看 {ticker_symbol} 详情", finviz_url)
+                    st.link_button(f"👉 去 Finviz 查看 {ticker_symbol}", finviz_url)
 
                 # --- 图表 ---
                 st.write("---")
                 st.write("**近 6 个月走势**")
-                hist = stock.history(period="6m")
-                if not hist.empty:
-                    st.line_chart(hist['Close'])
-                else:
-                    st.warning("暂无图表数据")
+                try:
+                    hist = stock.history(period="6m")
+                    if not hist.empty:
+                        st.line_chart(hist['Close'])
+                    else:
+                        st.warning("暂无图表数据")
+                except:
+                    st.warning("无法加载图表")
 
         except Exception as e:
             st.error(f"发生错误：无法获取 {ticker_symbol}。可能是代码输入错误。")
-            # st.exception(e) # 调试用
-                    st.metric(label="Short % of Float", value=val, delta="做空占比", delta_color="off")
-
-                # --- 额外数据表格 ---
-                with st.expander("查看更多详细数据"):
-                    detail_data = {
-                        "指标": ["被做空股数 (Shares Short)", "流通股总数 (Float Shares)", "做空比率 (Short Ratio)", "前收盘价"],
-                        "数值": [
-                            f"{shares_short:,}" if shares_short else "N/A",
-                            f"{info.get('floatShares', 0):,}" if info.get('floatShares') else "N/A",
-                            short_ratio,
-                            info.get('previousClose')
-                        ]
-                    }
-                    st.table(pd.DataFrame(detail_data))
-
-                # --- 价格走势图 (辅助判断) ---
-                st.write("📈 **最近 3 个月价格走势** (辅助判断轧空趋势)")
-                hist = stock.history(period="3m")
-                st.line_chart(hist['Close'])
-
-        except Exception as e:
-            st.error(f"无法找到代码 {ticker_symbol}，请检查拼写是否正确。错误信息: {e}")
-    else:
-
-        st.warning("请输入有效的股票代码。")
-
+            # 只有在调试时才打开下面这行
+            # st.exception(e)
