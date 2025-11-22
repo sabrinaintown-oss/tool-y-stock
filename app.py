@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 
 # --- 页面配置 ---
-st.set_page_config(page_title="工具Y - Finviz增强版", page_icon="🕵️", layout="centered")
+st.set_page_config(page_title="工具Y - ETF强力版", page_icon="🛡️", layout="centered")
 
 # --- CSS样式 ---
 st.markdown("""
@@ -13,52 +13,69 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 核心功能：爬取 Finviz 数据 ---
-def get_finviz_data(ticker):
+# --- 核心功能：爬取 StockAnalysis (替代Finviz) ---
+def get_stockanalysis_data(ticker):
     """
-    伪装成浏览器去 Finviz 抓取数据
+    尝试从 StockAnalysis.com 获取数据，它的反爬虫机制比 Finviz 宽松
     """
-    url = f"https://finviz.com/quote.ashx?t={ticker}"
-    # 必须加上 User-Agent，否则 Finviz 会认为是机器人并拦截
+    # StockAnalysis 的 URL 结构：ETF 和 股票 是分开的，我们先试 ETF
+    # 比如: https://stockanalysis.com/etf/spy/
+    
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        response.raise_for_status() # 检查是否连接成功
-        
-        # 使用 Pandas 读取网页中的表格
-        tables = pd.read_html(response.text)
-        
-        # Finviz 的数据通常在一个很大的表格里，我们需要找到包含 'Short Float' 的那个
-        for df in tables:
-            # 将表格转换为字符串方便搜索
-            df_str = df.to_string()
-            if 'Short Float' in df_str:
-                # 这是一个键值对表格，我们需要重组它
-                # 这种表格通常是 col0=key, col1=value, col2=key, col3=value...
-                data = {}
-                # 遍历所有列，尝试提取键值对
-                for i in range(0, len(df.columns), 2):
-                    keys = df.iloc[:, i]
-                    values = df.iloc[:, i+1]
-                    for k, v in zip(keys, values):
-                        data[str(k)] = v
-                return data
-        return None
-    except Exception as e:
-        return None
+    # 定义可能的 URL 格式
+    urls = [
+        f"https://stockanalysis.com/etf/{ticker.lower()}/",     # 格式1: ETF
+        f"https://stockanalysis.com/stocks/{ticker.lower()}/"   # 格式2: 个股
+    ]
+
+    for url in urls:
+        try:
+            response = requests.get(url, headers=headers, timeout=4)
+            if response.status_code == 200:
+                # 成功连接，开始解析表格
+                dfs = pd.read_html(response.text)
+                
+                result_data = {}
+                
+                # StockAnalysis 的页面通常有多个表格，我们需要遍历查找包含 'Short' 的数据
+                for df in dfs:
+                    # 转换为字符串以便搜索
+                    df_str = df.to_string()
+                    
+                    # 查找包含 'Short' 或 'Shares' 的行
+                    # 表格通常是两列: [属性, 数值]
+                    if df.shape[1] >= 2:
+                        for index, row in df.iterrows():
+                            key = str(row[0])
+                            val = str(row[1])
+                            
+                            if "Short %" in key or "Short Interest" in key:
+                                result_data['Short % of Float'] = val
+                            if "Short Ratio" in key:
+                                result_data['Short Ratio'] = val
+                            if "Shares Short" in key:
+                                result_data['Shares Short'] = val
+                
+                # 如果找到了数据，就返回
+                if result_data:
+                    return result_data
+        except Exception:
+            continue # 尝试下一个 URL
+            
+    return None
 
 # --- 主界面 ---
-st.title("🕵️ 工具Y：做空侦探 (含Finviz数据)")
-st.markdown("集成 **Yahoo Finance** (速度快) 与 **Finviz** (ETF数据全) 双引擎。")
+st.title("🛡️ 工具Y：ETF 做空数据强力版")
+st.markdown("集成 **Yahoo** (基础) + **StockAnalysis** (ETF增强) 双数据源。")
 
 col1, col2 = st.columns([3, 1])
 with col1:
-    ticker_input = st.text_input("请输入代码 (如 SPY, TSLA)", value="SPY")
+    ticker_input = st.text_input("请输入代码 (如 SPY, TQQQ, NVDA)", value="SPY")
 with col2:
     st.write("")
     st.write("")
-    search_btn = st.button("🔍 开始侦查", use_container_width=True)
+    search_btn = st.button("🔍 查询", use_container_width=True)
 
 if search_btn or ticker_input:
     ticker = ticker_input.strip().upper()
@@ -67,67 +84,88 @@ if search_btn or ticker_input:
         st.divider()
         st.subheader(f"📊 {ticker} 分析报告")
         
-        # 1. 尝试获取 Yahoo 数据
-        with st.status("正在从 Yahoo Finance 获取基础数据...", expanded=True) as status:
+        # 使用 st.status 显示进度，让用户知道没死机
+        with st.status("正在多渠道搜寻数据...", expanded=True) as status:
+            
+            # 1. 获取 Yahoo 基础信息
+            status.write("正在连接 Yahoo Finance...")
             y_stock = yf.Ticker(ticker)
             y_info = y_stock.info
             price = y_info.get('currentPrice') or y_info.get('navPrice') or y_info.get('previousClose')
-            
-            # 尝试从 Yahoo 获取做空数据
             y_short_float = y_info.get('shortPercentOfFloat')
             y_short_ratio = y_info.get('shortRatio')
             
-            status.update(label="Yahoo 数据获取完毕，正在尝试连接 Finviz...", state="running")
-            
-            # 2. 尝试获取 Finviz 数据 (补充)
-            f_data = get_finviz_data(ticker)
-            f_short_float = f_data.get('Short Float') if f_data else None
-            f_short_ratio = f_data.get('Short Ratio') if f_data else None
-            
-            status.update(label="所有数据源检索完成！", state="complete", expanded=False)
+            # 2. 如果 Yahoo 数据不全，启动 StockAnalysis 爬虫
+            sa_data = None
+            if not y_short_float or not y_short_ratio:
+                status.write("Yahoo 数据不全，正在启动 StockAnalysis 爬虫 (这可能需要几秒钟)...")
+                sa_data = get_stockanalysis_data(ticker)
+                
+            status.update(label="数据检索完成！", state="complete", expanded=False)
 
-        # --- 数据整合展示 ---
-        
-        # 显示价格
+        # --- 展示数据 ---
         st.metric("当前价格", f"${price}" if price else "N/A")
-        
-        # 对比展示做空数据
+
         c1, c2 = st.columns(2)
         
+        # --- 数据处理逻辑 ---
+        # 优先使用 StockAnalysis 的数据 (因为它通常对ETF更准)，如果没有则用 Yahoo
+        
+        # 1. Short % of Float
         with c1:
-            st.markdown("### 📉 Short Float (做空占比)")
-            # 优先显示 Finviz，因为 ETF 数据它更全
-            if f_short_float and f_short_float != '-':
-                st.metric("来源: Finviz", f_short_float, delta="首选数据")
+            st.markdown("### 📉 Short % (做空占比)")
+            final_short_float = None
+            source_label = ""
+            
+            if sa_data and 'Short % of Float' in sa_data:
+                final_short_float = sa_data['Short % of Float']
+                source_label = "StockAnalysis"
             elif y_short_float:
-                st.metric("来源: Yahoo", f"{y_short_float*100:.2f}%")
+                final_short_float = f"{y_short_float*100:.2f}%"
+                source_label = "Yahoo Finance"
+            
+            if final_short_float:
+                st.metric(f"来源: {source_label}", final_short_float, delta="做空热度", delta_color="off")
             else:
-                st.warning("两大数据源均未提供 Short Float")
+                st.warning("暂无数据")
 
+        # 2. Short Ratio
         with c2:
             st.markdown("### ⏱️ Short Ratio (回补天数)")
-            if f_short_ratio and f_short_ratio != '-':
-                st.metric("来源: Finviz", f_short_ratio, delta="首选数据")
+            final_short_ratio = None
+            source_label = ""
+            
+            if sa_data and 'Short Ratio' in sa_data:
+                final_short_ratio = sa_data['Short Ratio']
+                source_label = "StockAnalysis"
             elif y_short_ratio:
-                st.metric("来源: Yahoo", f"{y_short_ratio}")
+                final_short_ratio = f"{y_short_ratio}"
+                source_label = "Yahoo Finance"
+                
+            if final_short_ratio:
+                st.metric(f"来源: {source_label}", final_short_ratio)
             else:
-                st.warning("两大数据源均未提供 Short Ratio")
-        
-        # --- 更多 Finviz 详情 ---
-        if f_data:
-            with st.expander(f"查看 Finviz 抓取到的完整数据 ({ticker})"):
-                # 挑选一些重要指标展示
-                keys_to_show = ['Short Float', 'Short Ratio', 'Shs Float', 'Inst Own', 'Insider Own']
-                display_data = {k: f_data.get(k, '-') for k in keys_to_show}
-                st.table(pd.DataFrame(display_data.items(), columns=['指标', '数值']))
-        else:
-            st.info("未能成功抓取 Finviz 数据，可能是网络阻断或该标的无数据。")
+                st.warning("暂无数据")
 
-        # --- 走势图 ---
+        # --- 补充信息 ---
+        if sa_data and 'Shares Short' in sa_data:
+             st.info(f"💡 总做空股数 (Shares Short): {sa_data['Shares Short']}")
+
+        # --- 外部链接 (保底方案) ---
         st.write("---")
-        st.caption("近6个月走势")
+        st.caption("如果上方仍显示无数据，请直接点击下方链接查看原始网页：")
+        
+        l1, l2 = st.columns(2)
+        with l1:
+            st.link_button(f"👉 查看 StockAnalysis ({ticker})", f"https://stockanalysis.com/etf/{ticker.lower()}/")
+        with l2:
+            st.link_button(f"👉 查看 Finviz ({ticker})", f"https://finviz.com/quote.ashx?t={ticker}")
+
+        # --- 图表 ---
         try:
             hist = y_stock.history(period="6m")
-            st.line_chart(hist['Close'])
+            if not hist.empty:
+                st.line_chart(hist['Close'])
         except:
             pass
+
