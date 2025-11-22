@@ -4,28 +4,35 @@ import pandas as pd
 
 # --- 页面配置 ---
 st.set_page_config(
-    page_title="工具Y - 个股做空数据查询",
-    page_icon="📉",
+    page_title="工具Y - Pro版",
+    page_icon="📊",
     layout="centered"
 )
 
-# --- 标题与简介 ---
-st.title("📉 工具Y：个股做空透视镜")
+# --- CSS样式优化 ---
 st.markdown("""
-输入美股代码（如 TSLA, AAPL, GME），快速获取**做空比率 (Short Ratio)** 及 **做空占比 (Short % of Float)**。
-*数据来源: Yahoo Finance (基于最近一次交易所报告)*
-""")
+    <style>
+    .metric-card {
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-st.divider()
+# --- 标题 ---
+st.title("📊 工具Y：做空数据透视 (含ETF支持)")
+st.markdown("查询美股/ETF的 **做空比率** 及 **做空规模**。")
 
-# --- 侧边栏或顶部输入 ---
+# --- 输入区 ---
 col1, col2 = st.columns([3, 1])
 with col1:
-    ticker_input = st.text_input("请输入股票代码", value="TSLA", help="输入美股代码，不区分大小写")
+    ticker_input = st.text_input("请输入代码 (如 SPY, ARKK, NVDA)", value="SPY")
 with col2:
-    st.write("") # 占位，为了让按钮对齐
     st.write("")
-    search_btn = st.button("🔍 查询数据", use_container_width=True)
+    st.write("")
+    search_btn = st.button("🔍 查询", use_container_width=True)
 
 # --- 核心逻辑 ---
 if search_btn or ticker_input:
@@ -33,33 +40,61 @@ if search_btn or ticker_input:
     
     if ticker_symbol:
         try:
-            with st.spinner(f'正在从交易所获取 {ticker_symbol} 的数据...'):
+            with st.spinner(f'正在挖掘 {ticker_symbol} 的数据...'):
                 stock = yf.Ticker(ticker_symbol)
                 info = stock.info
                 
-                # 获取核心数据
-                current_price = info.get('currentPrice', 0)
-                short_ratio = info.get('shortRatio')
-                short_float = info.get('shortPercentOfFloat')
-                shares_short = info.get('sharesShort')
+                # --- 数据提取 (增强容错性) ---
+                price = info.get('currentPrice') or info.get('navPrice') or info.get('previousClose')
+                short_ratio = info.get('shortRatio') # 回补天数
+                short_float = info.get('shortPercentOfFloat') # 做空占比
+                shares_short = info.get('sharesShort') # 总做空股数
                 
-                # --- 结果展示区 ---
-                st.subheader(f"📊 {ticker_symbol} 做空数据报告")
+                # --- 结果展示 ---
+                st.divider()
+                st.subheader(f"📈 {ticker_symbol} 数据报告")
+
+                # 第一行指标
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("当前价格", f"${price}" if price else "N/A")
+                with c2:
+                    # 如果是ETF，Yahoo经常没有Short Ratio，显示N/A
+                    val = f"{short_ratio} 天" if short_ratio else "N/A"
+                    st.metric("Short Ratio (回补天数)", val)
+                with c3:
+                    # 做空占比
+                    if short_float:
+                        val = f"{short_float * 100:.2f}%"
+                        st.metric("Short % of Float", val, delta="做空热度", delta_color="off")
+                    else:
+                        st.metric("Short % of Float", "数据源缺失", help="Yahoo Finance 未提供此ETF的流通占比数据")
+
+                # --- 第二行：针对 ETF 的补充数据 ---
+                st.write("")
+                st.caption("💡 提示：ETF 的流通股是动态变化的，因此由于计算困难，免费数据源常缺失比率数据。请参考下方的【总做空股数】。")
                 
-                # 第一行：核心指标
-                metric_col1, metric_col2, metric_col3 = st.columns(3)
-                
-                with metric_col1:
-                    st.metric(label="当前股价", value=f"${current_price}")
-                
-                with metric_col2:
-                    val = f"{short_ratio} 天" if short_ratio else "无数据"
-                    st.metric(label="Short Ratio (回补天数)", value=val, 
-                              help="以当前日均交易量，空头买回所有股票需要的天数。数值越大，轧空风险越高。")
-                
-                with metric_col3:
-                    val = f"{short_float * 100:.2f}%" if short_float else "无数据"
-                    delta_color = "inverse" if short_float and short_float > 0.2 else "normal" # 如果做空超过20%显示红色警示
+                c4, c5 = st.columns(2)
+                with c4:
+                    st.metric("被做空总股数 (Shares Short)", f"{shares_short:,}" if shares_short else "无数据")
+                with c5:
+                    # 这是一个备用方案按钮
+                    finviz_url = f"https://finviz.com/quote.ashx?t={ticker_symbol}&p=d"
+                    st.write("看不到数据？试试 Finviz：")
+                    st.link_button(f"👉 去 Finviz 查看 {ticker_symbol} 详情", finviz_url)
+
+                # --- 图表 ---
+                st.write("---")
+                st.write("**近 6 个月走势**")
+                hist = stock.history(period="6m")
+                if not hist.empty:
+                    st.line_chart(hist['Close'])
+                else:
+                    st.warning("暂无图表数据")
+
+        except Exception as e:
+            st.error(f"发生错误：无法获取 {ticker_symbol}。可能是代码输入错误。")
+            # st.exception(e) # 调试用
                     st.metric(label="Short % of Float", value=val, delta="做空占比", delta_color="off")
 
                 # --- 额外数据表格 ---
@@ -85,3 +120,4 @@ if search_btn or ticker_input:
     else:
 
         st.warning("请输入有效的股票代码。")
+
