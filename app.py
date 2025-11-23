@@ -24,13 +24,6 @@ st.markdown("""
         border-left: 5px solid #ff4b4b;
         margin-bottom: 20px;
     }
-    .success-box {
-        background-color: #e6fffa;
-        padding: 15px;
-        border-radius: 10px;
-        border-left: 5px solid #00bfa5;
-        margin-bottom: 20px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -58,7 +51,7 @@ if ticker_input:
         stock = yf.Ticker(ticker)
         info = stock.info
         
-        # Attempt to get price (different keys for stocks vs ETFs)
+        # Attempt to get price
         price = info.get('currentPrice') or info.get('navPrice') or info.get('previousClose')
         
         # Attempt to get Short Data
@@ -82,4 +75,45 @@ if ticker_input:
                 
         with m3:
             if y_short_ratio:
-                st.
+                st.metric("Days to Cover", f"{y_short_ratio}", delta="Source: Yahoo")
+            else:
+                st.metric("Days to Cover", "--", help="Yahoo Finance data missing.")
+
+        # Show Shares Short if available
+        if y_shares_short:
+            st.caption(f"**Total Shares Short:** {y_shares_short:,}")
+
+    except Exception as e:
+        st.error(f"Could not load data for {ticker}. Please check the symbol.")
+
+    # --- 2. Deep Dive Links ---
+    st.write("")
+    st.write("")
+    
+    # Logic: If data is missing (common for ETFs), show a helpful tip
+    if not y_short_float:
+        st.markdown("""
+        <div class="info-box">
+            <b>Data missing above?</b><br>
+            Short interest data for ETFs (like SPY, QQQ) is often hidden or not calculated by standard free APIs.
+            Use the <b>Fintel</b> link below for the most reliable data.
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.subheader("🔗 Deep Dive: External Data Sources")
+    st.caption("Click buttons below to open official data pages directly.")
+
+    # Generate Smart Links
+    url_fintel = f"https://fintel.io/ss/us/{ticker.lower()}"
+    
+    # MarketWatch URL logic
+    is_common_etf = ticker in ['SPY', 'QQQ', 'IWM', 'TQQQ', 'SQQQ', 'ARKK', 'SMH']
+    url_marketwatch = f"https://www.marketwatch.com/investing/fund/{ticker.lower()}" if is_common_etf else f"https://www.marketwatch.com/investing/stock/{ticker.lower()}"
+    
+    url_shortsqueeze = f"https://shortsqueeze.com/?symbol={ticker}"
+    url_yahoo_stats = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
+
+    # Row 1 Buttons
+    r1_col1, r1_col2 = st.columns(2)
+    with r1_col1:
+        st.link_button(f"👉 Open Fintel.io (Best for Data)", url_fintel, type="primary", use_container_width=
