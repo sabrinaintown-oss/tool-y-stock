@@ -29,15 +29,12 @@ st.markdown("""
 
 # --- Main Title ---
 st.title("📉 Short Interest Command Center")
-st.markdown("""
-    Quickly analyze **Short Ratio** and **Short % of Float**.  
-    *Includes direct links to Fintel & MarketWatch for hard-to-find ETF data.*
-""")
+st.markdown("Quickly analyze Short Ratio and Short % of Float.")
 
 # --- Input Area ---
 col1, col2 = st.columns([3, 1])
 with col1:
-    ticker_input = st.text_input("Enter Ticker Symbol", value="SPY", placeholder="e.g. SPY, TSLA, GME")
+    ticker_input = st.text_input("Enter Ticker", value="SPY")
 with col2:
     st.write("")
     st.write("")
@@ -46,15 +43,12 @@ with col2:
 if ticker_input:
     ticker = ticker_input.strip().upper()
     
-    # --- 1. Fetch Basic Data from Yahoo Finance ---
+    # --- 1. Fetch Basic Data ---
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
         
-        # Attempt to get price
         price = info.get('currentPrice') or info.get('navPrice') or info.get('previousClose')
-        
-        # Attempt to get Short Data
         y_short_float = info.get('shortPercentOfFloat')
         y_short_ratio = info.get('shortRatio')
         y_shares_short = info.get('sharesShort')
@@ -71,49 +65,81 @@ if ticker_input:
             if y_short_float:
                 st.metric("Short % of Float", f"{y_short_float*100:.2f}%", delta="Source: Yahoo")
             else:
-                st.metric("Short % of Float", "--", help="Yahoo Finance often does not provide this percentage for ETFs.")
+                st.metric("Short % of Float", "--", help="Missing in Yahoo")
                 
         with m3:
             if y_short_ratio:
                 st.metric("Days to Cover", f"{y_short_ratio}", delta="Source: Yahoo")
             else:
-                st.metric("Days to Cover", "--", help="Yahoo Finance data missing.")
+                st.metric("Days to Cover", "--", help="Missing in Yahoo")
 
-        # Show Shares Short if available
         if y_shares_short:
             st.caption(f"**Total Shares Short:** {y_shares_short:,}")
 
-    except Exception as e:
-        st.error(f"Could not load data for {ticker}. Please check the symbol.")
+    except Exception:
+        st.error("Error loading data.")
 
     # --- 2. Deep Dive Links ---
     st.write("")
-    st.write("")
     
-    # Logic: If data is missing (common for ETFs), show a helpful tip
+    # Missing Data Warning
     if not y_short_float:
-        st.markdown("""
-        <div class="info-box">
-            <b>Data missing above?</b><br>
-            Short interest data for ETFs (like SPY, QQQ) is often hidden or not calculated by standard free APIs.
-            Use the <b>Fintel</b> link below for the most reliable data.
-        </div>
-        """, unsafe_allow_html=True)
+        st.info("Data missing above? Use the buttons below (Best for ETFs).")
     
-    st.subheader("🔗 Deep Dive: External Data Sources")
-    st.caption("Click buttons below to open official data pages directly.")
+    st.subheader("🔗 External Data Sources")
 
-    # Generate Smart Links
+    # Generate URLs
     url_fintel = f"https://fintel.io/ss/us/{ticker.lower()}"
     
-    # MarketWatch URL logic
-    is_common_etf = ticker in ['SPY', 'QQQ', 'IWM', 'TQQQ', 'SQQQ', 'ARKK', 'SMH']
-    url_marketwatch = f"https://www.marketwatch.com/investing/fund/{ticker.lower()}" if is_common_etf else f"https://www.marketwatch.com/investing/stock/{ticker.lower()}"
+    # Logic for MarketWatch URL
+    is_etf = ticker in ['SPY', 'QQQ', 'IWM', 'TQQQ', 'SQQQ', 'ARKK', 'SMH']
+    if is_etf:
+        url_mw = f"https://www.marketwatch.com/investing/fund/{ticker.lower()}"
+    else:
+        url_mw = f"https://www.marketwatch.com/investing/stock/{ticker.lower()}"
     
-    url_shortsqueeze = f"https://shortsqueeze.com/?symbol={ticker}"
-    url_yahoo_stats = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
+    url_sq = f"https://shortsqueeze.com/?symbol={ticker}"
+    url_yf = f"https://finance.yahoo.com/quote/{ticker}/key-statistics"
 
-    # Row 1 Buttons
+    # --- BUTTONS (Formatted safely to prevent errors) ---
     r1_col1, r1_col2 = st.columns(2)
+    
     with r1_col1:
-        st.link_button(f"👉 Open Fintel.io (Best for Data)", url_fintel, type="primary", use_container_width=
+        st.link_button(
+            label="👉 Open Fintel.io (Best)", 
+            url=url_fintel, 
+            type="primary", 
+            use_container_width=True
+        )
+        
+    with r1_col2:
+        st.link_button(
+            label="👉 Open MarketWatch", 
+            url=url_mw, 
+            use_container_width=True
+        )
+
+    r2_col1, r2_col2 = st.columns(2)
+    
+    with r2_col1:
+        st.link_button(
+            label="👉 Open ShortSqueeze", 
+            url=url_sq, 
+            use_container_width=True
+        )
+        
+    with r2_col2:
+        st.link_button(
+            label="👉 Yahoo Statistics", 
+            url=url_yf, 
+            use_container_width=True
+        )
+
+    # --- 3. Simple Chart ---
+    st.divider()
+    try:
+        hist = stock.history(period="3m")
+        if not hist.empty:
+            st.line_chart(hist['Close'])
+    except:
+        pass
